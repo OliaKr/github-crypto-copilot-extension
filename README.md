@@ -1,0 +1,1 @@
+## 🚀 Crypto Copilot Extension
