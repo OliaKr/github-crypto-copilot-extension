@@ -30,6 +30,11 @@ app.get("/", (_req, res) => {
   res.send("Welcome to Crypto Copilot Extension!");
 });
 
+const currencyNames = {
+  bitcoin: "Bitcoin (BTC)",
+  ethereum: "Ethereum (ETH)",
+};
+
 const fetchCurrentPrice = async (currency: string) => {
   try {
     const response = await axios.get(
@@ -102,6 +107,11 @@ app.post("/", async (req, res) => {
       currency = "ethereum";
     }
 
+    const currencyFullName =
+      currency in currencyNames
+        ? currencyNames[currency as keyof typeof currencyNames]
+        : currency;
+
     if (
       userPrompt.toLowerCase().includes("24h") ||
       userPrompt.toLowerCase().includes("24 hours")
@@ -110,7 +120,7 @@ app.post("/", async (req, res) => {
       const priceChange = calculatePriceChange(historicalData);
       res.write(
         createTextEvent(
-          `The price of ${currency} has changed by ${priceChange}% in the last 24 hours.`
+          `The price of ${currencyFullName} has changed by ${priceChange}% in the last 24 hours.`
         )
       );
     } else if (
@@ -121,7 +131,7 @@ app.post("/", async (req, res) => {
       const priceChange = calculatePriceChange(historicalData);
       res.write(
         createTextEvent(
-          `The price of ${currency} has changed by ${priceChange}% in the last 7 days.`
+          `The price of ${currencyFullName} has changed by ${priceChange}% in the last 7 days.`
         )
       );
     } else if (
@@ -132,7 +142,7 @@ app.post("/", async (req, res) => {
       const priceChange = calculatePriceChange(historicalData);
       res.write(
         createTextEvent(
-          `The price of ${currency} has changed by ${priceChange}% in the last 30 days.`
+          `The price of ${currencyFullName} has changed by ${priceChange}% in the last 30 days.`
         )
       );
     } else {
@@ -144,18 +154,17 @@ app.post("/", async (req, res) => {
         });
         res.write(
           createTextEvent(
-            `The current price of ${currency.toUpperCase()} is $${formattedPrice}`
+            `The current price of ${currencyFullName} is $${formattedPrice}.`
           )
         );
       } else {
         res.write(
           createTextEvent(
-            `Sorry, I couldn't fetch the current price of ${currency} at the moment.`
+            `Sorry, I couldn't fetch the current price of ${currencyFullName} at the moment.`
           )
         );
       }
     }
-
     res.write(createDoneEvent());
     res.end();
   } catch (error) {
