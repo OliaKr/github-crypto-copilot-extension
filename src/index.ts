@@ -1,7 +1,8 @@
 import express from "express";
+import axios from "axios";
 import dotenv from "dotenv";
 import {
-  verifyAndParseRequest,
+  parseRequestBody,
   getUserMessage,
   createAckEvent,
   createTextEvent,
@@ -12,51 +13,157 @@ import {
 dotenv.config();
 
 const app = express();
-app.use(express.text());
+
+app.use((req, res, next) => {
+  let data = "";
+  req.setEncoding("utf8");
+  req.on("data", (chunk) => {
+    data += chunk;
+  });
+  req.on("end", () => {
+    (req as any).rawBody = data;
+    next();
+  });
+});
 
 app.get("/", (_req, res) => {
   res.send("Welcome to Crypto Copilot Extension!");
 });
 
+const fetchCurrentPrice = async (currency: string) => {
+  try {
+    const response = await axios.get(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${currency}&vs_currencies=usd`
+    );
+    return response.data[currency]?.usd || null;
+  } catch (error) {
+    console.error("Error fetching current price:", error);
+    throw new Error("Failed to fetch current price");
+  }
+};
+
+const fetchHistoricalData = async (currency: string, days: number) => {
+  try {
+    const response = await axios.get(
+      `https://api.coingecko.com/api/v3/coins/${currency}/market_chart?vs_currency=usd&days=${days}`
+    );
+    const data = response.data.prices;
+    return data;
+  } catch (error) {
+    console.error("Error fetching historical data:", error);
+    throw new Error("Failed to fetch historical data");
+  }
+};
+
+const calculatePriceChange = (historicalData: any[]) => {
+  if (historicalData.length > 0) {
+    const firstPrice = historicalData[0][1];
+    const lastPrice = historicalData[historicalData.length - 1][1];
+    const change = ((lastPrice - firstPrice) / firstPrice) * 100;
+    return change.toFixed(2);
+  }
+  return null;
+};
+
 app.post("/", async (req, res) => {
-  const tokenForUser = (req.headers["x-github-token"] as string) ?? "";
-  const signature =
-    (req.headers["github-public-key-signature"] as string) ?? "";
-  const keyID = (req.headers["github-public-key-identifier"] as string) ?? "";
-  const body = req.body;
+  const tokenForUser = req.header("x-github-token") ?? "";
+  const rawBody = (req as any).rawBody;
+
+  if (!rawBody || rawBody.length === 0) {
+    console.warn("Empty body received - Ignoring");
+    res.status(400).send("Empty body - nothing to process");
+    return;
+  }
+
+  if (!tokenForUser) {
+    console.error("Missing GitHub token");
+    res.status(401).send("Missing GitHub token");
+    return;
+  }
 
   try {
-    const { isValidRequest, payload } = await verifyAndParseRequest(
-      body,
-      signature,
-      keyID,
-      { token: tokenForUser }
-    );
-
-    if (!isValidRequest) {
-      console.error("Request verification failed");
-      res.status(401).send("Request could not be verified");
-      return;
-    }
-
+    const payload = parseRequestBody(rawBody);
     const userPrompt = getUserMessage(payload);
-
-    console.log("User Prompt:", userPrompt);
-
-    const responseText =
-      createAckEvent() +
-      createTextEvent(`Got your request: "${userPrompt}". Processing data...`) +
-      createDoneEvent();
 
     res.setHeader("Content-Type", "text/html");
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.send(responseText);
-  } catch (error: any) {
-    console.error("Error handling request:", error.message);
+    res.write(createAckEvent());
+
+    let currency = "bitcoin";
+    if (
+      userPrompt.toLowerCase().includes("bitcoin") ||
+      userPrompt.toLowerCase().includes("btc")
+    ) {
+      currency = "bitcoin";
+    } else if (
+      userPrompt.toLowerCase().includes("ethereum") ||
+      userPrompt.toLowerCase().includes("eth")
+    ) {
+      currency = "ethereum";
+    }
+
+    if (
+      userPrompt.toLowerCase().includes("24h") ||
+      userPrompt.toLowerCase().includes("24 hours")
+    ) {
+      const historicalData = await fetchHistoricalData(currency, 1);
+      const priceChange = calculatePriceChange(historicalData);
+      res.write(
+        createTextEvent(
+          `The price of ${currency} has changed by ${priceChange}% in the last 24 hours.`
+        )
+      );
+    } else if (
+      userPrompt.toLowerCase().includes("7d") ||
+      userPrompt.toLowerCase().includes("7 days")
+    ) {
+      const historicalData = await fetchHistoricalData(currency, 7);
+      const priceChange = calculatePriceChange(historicalData);
+      res.write(
+        createTextEvent(
+          `The price of ${currency} has changed by ${priceChange}% in the last 7 days.`
+        )
+      );
+    } else if (
+      userPrompt.toLowerCase().includes("30d") ||
+      userPrompt.toLowerCase().includes("30 days")
+    ) {
+      const historicalData = await fetchHistoricalData(currency, 30);
+      const priceChange = calculatePriceChange(historicalData);
+      res.write(
+        createTextEvent(
+          `The price of ${currency} has changed by ${priceChange}% in the last 30 days.`
+        )
+      );
+    } else {
+      const price = await fetchCurrentPrice(currency);
+      if (price !== null) {
+        const formattedPrice = price.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+        res.write(
+          createTextEvent(
+            `The current price of ${currency.toUpperCase()} is $${formattedPrice}`
+          )
+        );
+      } else {
+        res.write(
+          createTextEvent(
+            `Sorry, I couldn't fetch the current price of ${currency} at the moment.`
+          )
+        );
+      }
+    }
+
+    res.write(createDoneEvent());
+    res.end();
+  } catch (error) {
+    console.error("Error handling request:", error);
     const errorEvent = createErrorsEvent([
       {
         type: "agent",
-        message: error.message || "Unknown error",
+        message: error instanceof Error ? error.message : "Unknown error",
         code: "PROCESSING_ERROR",
         identifier: "processing_error",
       },
@@ -65,6 +172,8 @@ app.post("/", async (req, res) => {
   }
 });
 
-app.listen(3000, () => {
-  console.log("🚀 Server is running on http://localhost:3000");
+const port = process.env.PORT || 3000;
+
+app.listen(port, () => {
+  console.log(`Server is running on http://localhost:${port}`);
 });
