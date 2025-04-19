@@ -14,7 +14,6 @@ import cors from "cors";
 dotenv.config();
 
 const app = express();
-
 app.use(cors());
 
 app.use((req, res, next) => {
@@ -38,25 +37,31 @@ const currencyNames = {
   ethereum: "Ethereum (ETH)",
 };
 
+const COINGECKO_API_URL = process.env.COINGECKO_API_URL;
+
 const fetchCurrentPrice = async (currency: string) => {
   try {
     const response = await axios.get(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${currency}&vs_currencies=usd`
+      `${COINGECKO_API_URL}/simple/price?ids=${currency}&vs_currencies=usd`
     );
     return response.data[currency]?.usd || null;
   } catch (error) {
-    throw new Error("Unable to retrieve the current price");
+    throw new Error(
+      "Unable to retrieve the current price. Please check the API URL or try again later."
+    );
   }
 };
 
 const fetchHistoricalData = async (currency: string, days: number) => {
   try {
     const response = await axios.get(
-      `https://api.coingecko.com/api/v3/coins/${currency}/market_chart?vs_currency=usd&days=${days}`
+      `${COINGECKO_API_URL}/coins/${currency}/market_chart?vs_currency=usd&days=${days}`
     );
     return response.data.prices;
   } catch (error) {
-    throw new Error("Unable to retrieve the historical data");
+    throw new Error(
+      "Unable to retrieve the historical data. Please check the API URL or try again later."
+    );
   }
 };
 
@@ -82,7 +87,6 @@ app.post("/", async (req, res) => {
   }
 
   if (!tokenForUser) {
-    console.error("Missing GitHub token");
     res.status(401).send("Missing GitHub token");
     return;
   }
@@ -96,6 +100,7 @@ app.post("/", async (req, res) => {
     res.write(createAckEvent());
 
     let currency = "bitcoin";
+
     if (
       userPrompt.toLowerCase().includes("bitcoin") ||
       userPrompt.toLowerCase().includes("btc")
@@ -117,6 +122,7 @@ app.post("/", async (req, res) => {
     ) {
       const historicalData = await fetchHistoricalData(currency, 1);
       const priceChange = calculatePriceChange(historicalData);
+
       res.write(
         createTextEvent(
           `The price of ${currencyFullName} has changed by ${priceChange}% in the last 24 hours.`
@@ -139,6 +145,7 @@ app.post("/", async (req, res) => {
     ) {
       const historicalData = await fetchHistoricalData(currency, 30);
       const priceChange = calculatePriceChange(historicalData);
+
       res.write(
         createTextEvent(
           `The price of ${currencyFullName} has changed by ${priceChange}% in the last 30 days.`
@@ -146,11 +153,13 @@ app.post("/", async (req, res) => {
       );
     } else {
       const price = await fetchCurrentPrice(currency);
+
       if (price !== null) {
         const formattedPrice = price.toLocaleString("en-US", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         });
+
         res.write(
           createTextEvent(
             `The current price of ${currencyFullName} is $${formattedPrice}.`
