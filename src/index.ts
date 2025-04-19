@@ -9,10 +9,13 @@ import {
   createDoneEvent,
   createErrorsEvent,
 } from "@copilot-extensions/preview-sdk";
+import cors from "cors";
 
 dotenv.config();
 
 const app = express();
+
+app.use(cors());
 
 app.use((req, res, next) => {
   let data = "";
@@ -40,6 +43,7 @@ const fetchCurrentPrice = async (currency: string) => {
     const response = await axios.get(
       `https://api.coingecko.com/api/v3/simple/price?ids=${currency}&vs_currencies=usd`
     );
+    console.log(`Fetched current price for ${currency}:`, response.data);
     return response.data[currency]?.usd || null;
   } catch (error) {
     console.error("Error fetching current price:", error);
@@ -52,8 +56,8 @@ const fetchHistoricalData = async (currency: string, days: number) => {
     const response = await axios.get(
       `https://api.coingecko.com/api/v3/coins/${currency}/market_chart?vs_currency=usd&days=${days}`
     );
-    const data = response.data.prices;
-    return data;
+    console.log(`Fetched historical data for ${currency}:`, response.data);
+    return response.data.prices;
   } catch (error) {
     console.error("Error fetching historical data:", error);
     throw new Error("Failed to fetch historical data");
@@ -108,9 +112,7 @@ app.post("/", async (req, res) => {
     }
 
     const currencyFullName =
-      currency in currencyNames
-        ? currencyNames[currency as keyof typeof currencyNames]
-        : currency;
+      currencyNames[currency as keyof typeof currencyNames] || currency;
 
     if (
       userPrompt.toLowerCase().includes("24h") ||
@@ -165,6 +167,7 @@ app.post("/", async (req, res) => {
         );
       }
     }
+
     res.write(createDoneEvent());
     res.end();
   } catch (error) {
@@ -182,7 +185,6 @@ app.post("/", async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
