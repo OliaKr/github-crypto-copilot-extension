@@ -43,11 +43,9 @@ const fetchCurrentPrice = async (currency: string) => {
     const response = await axios.get(
       `https://api.coingecko.com/api/v3/simple/price?ids=${currency}&vs_currencies=usd`
     );
-    console.log(`Fetched current price for ${currency}:`, response.data);
     return response.data[currency]?.usd || null;
   } catch (error) {
-    console.error("Error fetching current price:", error);
-    throw new Error("Failed to fetch current price");
+    throw new Error("Unable to retrieve the current price");
   }
 };
 
@@ -56,11 +54,9 @@ const fetchHistoricalData = async (currency: string, days: number) => {
     const response = await axios.get(
       `https://api.coingecko.com/api/v3/coins/${currency}/market_chart?vs_currency=usd&days=${days}`
     );
-    console.log(`Fetched historical data for ${currency}:`, response.data);
     return response.data.prices;
   } catch (error) {
-    console.error("Error fetching historical data:", error);
-    throw new Error("Failed to fetch historical data");
+    throw new Error("Unable to retrieve the historical data");
   }
 };
 
@@ -79,8 +75,9 @@ app.post("/", async (req, res) => {
   const rawBody = (req as any).rawBody;
 
   if (!rawBody || rawBody.length === 0) {
-    console.warn("Empty body received - Ignoring");
-    res.status(400).send("Empty body - nothing to process");
+    res
+      .status(400)
+      .send("No data received. Please provide the necessary information.");
     return;
   }
 
@@ -171,11 +168,13 @@ app.post("/", async (req, res) => {
     res.write(createDoneEvent());
     res.end();
   } catch (error) {
-    console.error("Error handling request:", error);
     const errorEvent = createErrorsEvent([
       {
         type: "agent",
-        message: error instanceof Error ? error.message : "Unknown error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Something went wrong. Please try again later.",
         code: "PROCESSING_ERROR",
         identifier: "processing_error",
       },
